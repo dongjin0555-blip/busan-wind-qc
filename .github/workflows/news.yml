@@ -3,6 +3,10 @@ on:
   schedule:
     - cron: "*/15 0-8 * * *"   # UTC 00:00~08:59 = KST 09:00~17:59, 15분 간격
   workflow_dispatch:
+    inputs:
+      test:
+        description: "true 이면 최신 기사 1건을 테스트로 전송(이력 변경 없음)"
+        default: "false"
 permissions:
   contents: write
 concurrency: news
@@ -13,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: python news_bot/notify.py
+      - run: python news_bot/notify.py ${{ inputs.test == 'true' && '--test' || '' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
