@@ -46,9 +46,24 @@ def format_item(it):
             f'<a href="{html.escape(it["link"], quote=True)}">원문보기</a>')
 
 
+def run_test(token, chat_id):
+    """연결 확인용: 이력과 무관하게 최신 기사 1건(주요 기사 우선)을 보내고 이력은 건드리지 않는다."""
+    items = scrape.collect()
+    print(f"collected={len(items)}")
+    if not items:
+        raise SystemExit("수집된 기사가 없습니다 (구글 뉴스 접속/키워드 확인 필요)")
+    pick = max(items, key=lambda i: (i["important"], i["dt"]))
+    tg_send(token, chat_id, "✅ <b>테스트 전송</b> (아래는 최신 기사 예시)\n\n" + format_item(pick))
+    print("sent test:", pick["title"])
+
+
 def main():
     token, chat_id = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     dry = not (token and chat_id)
+    if "--test" in sys.argv:
+        if dry:
+            raise SystemExit("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 가 없습니다")
+        return run_test(token, chat_id)
     first = not SENT_FILE.exists()
     sent = {} if first else json.loads(SENT_FILE.read_text())
 
