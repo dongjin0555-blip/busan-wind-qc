@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: python news_bot/notify.py ${{ inputs.test == 'true' && '--test' || '' }}
+      - run: python news_bot/notify.py ${{ inputs.test == 'true' && '--test' || '' }} ${{ github.event_name == 'schedule' && '--only-hours' || '' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
