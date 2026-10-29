@@ -1,24 +1,16 @@
-"""부산·울산·경남 기상 이슈 뉴스 스크랩 → 텔레그램 채널 전송 (네이버 뉴스 검색 API).
-
-python scrape.py          # 신규 기사 즉시 전송
-python scrape.py summary  # 최근 24시간 요약본 전송 (매일 17:00 KST)
-"""
+"""네이버 뉴스 검색 API로 부산·울산·경남 기상/재해 뉴스 수집."""
 import html
 import json
 import os
 import re
 import sys
-import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
-from pathlib import Path
 
 import config as C
-
-SEEN_FILE = Path(__file__).with_name("seen.json")
-KST = timezone(timedelta(hours=9))
 
 
 def clean(s):
@@ -35,97 +27,45 @@ def naver_search(query):
         return json.load(r)["items"]
 
 
+def classify(text):
+    """(지역, 카테고리, 키워드, 중요도 점수) 반환."""
+    regions = [r for r, ns in C.REGIONS.items() if any(n in text for n in ns)]
+    cats, kws = [], []
+    for cat, ks in C.CATEGORIES.items():
+        hit = [k for k in ks if k in text]
+        if hit:
+            cats.append(cat)
+            kws += hit
+    score = sum(w for t, w in C.IMPORTANT_TERMS.items() if t in text)
+    return regions, cats, kws, score
+
+
+def _search(q):
+    try:
+        return naver_search(q)
+    except Exception as e:
+        print(f"fetch fail [{q}]: {e}", file=sys.stderr)
+        return []
+
+
 def collect(max_age_hours=None):
-    items = {}
+    """신규/최근 기사 dict 리스트 (링크 기준 중복 제거)."""
+    queries = [f"{r} {k}" for r in C.SEARCH_REGIONS for k in C.SEARCH_KEYWORDS]
     now = datetime.now(timezone.utc)
-    for region in C.SEARCH_REGIONS:
-        for kw in C.SEARCH_KEYWORDS:
-            try:
-                raw = naver_search(f"{region} {kw}")
-            except Exception as e:
-                print(f"fetch fail [{region} {kw}]: {e}", file=sys.stderr)
-                continue
+    limit = timedelta(hours=max_age_hours or C.FETCH_HOURS)
+    items = {}
+    with ThreadPoolExecutor(4) as ex:
+        for raw in ex.map(_search, queries):
             for it in raw:
                 dt = parsedate_to_datetime(it["pubDate"])
-                if now - dt > timedelta(hours=max_age_hours or C.MAX_AGE_HOURS):
+                if now - dt > limit:
                     continue
-                title = clean(it["title"])
-                text = title + " " + clean(it["description"])
-                regions = [r for r, ns in C.REGIONS.items() if any(n in text for n in ns)]
-                hits = [k for k in C.KEYWORDS if k.split()[0] in text]
-                if not regions or not hits:
+                title, desc = clean(it["title"]), clean(it["description"])
+                regions, cats, kws, score = classify(title + " " + desc)
+                if not regions or not cats:
                     continue
                 link = it["link"] or it["originallink"]
-                items[link] = dict(title=title, link=link, dt=dt, regions=regions,
-                                   keywords=hits, desc=clean(it["description"]),
-                                   origin=it["originallink"])
-            time.sleep(0.15)
+                items[link] = dict(link=link, title=title, desc=desc, dt=dt.isoformat(),
+                                   regions=regions, categories=cats, keywords=kws,
+                                   score=score, important=score >= C.IMPORTANT_MIN)
     return sorted(items.values(), key=lambda x: x["dt"])
-
-
-def tg(token, chat_id, msg):
-    data = urllib.parse.urlencode({"chat_id": chat_id, "text": msg, "parse_mode": "HTML",
-                                   "disable_web_page_preview": "true"}).encode()
-    urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data, timeout=30).read()
-    time.sleep(1.5)
-
-
-def send_item(token, chat_id, it):
-    kst = it["dt"].astimezone(KST).strftime("%m/%d %H:%M")
-    tags = " ".join("#" + r for r in it["regions"])
-    tg(token, chat_id, f"📰 <b>{html.escape(it['title'])}</b>\n{kst}  {tags}\n{html.escape(it['link'])}")
-
-
-def load_seen():
-    return json.loads(SEEN_FILE.read_text()) if SEEN_FILE.exists() else {}
-
-
-def run_realtime(token, chat_id):
-    seen = load_seen()
-    new = [i for i in collect() if i["link"] not in seen][-C.MAX_SEND_PER_RUN:]
-    dry = not (token and chat_id)
-    print(f"new items: {len(new)} (dry-run={dry})")
-    for it in new:
-        if dry:
-            print(it["dt"].isoformat(), it["regions"], it["title"])
-            continue
-        send_item(token, chat_id, it)
-        seen[it["link"]] = dict(t=it["title"], r=it["regions"], d=it["dt"].isoformat())
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    seen = {k: v for k, v in seen.items() if v["d"] > cutoff}
-    if not dry:
-        SEEN_FILE.write_text(json.dumps(seen, ensure_ascii=False, indent=0))
-
-
-def run_summary(token, chat_id):
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=C.SUMMARY_HOURS)).isoformat()
-    rows = sorted((dict(v, link=k) for k, v in load_seen().items() if v["d"] > cutoff),
-                  key=lambda x: x["d"])
-    today = datetime.now(KST).strftime("%Y-%m-%d")
-    head = f"📋 <b>{today} 17:00 기상 이슈 뉴스 요약</b> (최근 {C.SUMMARY_HOURS}시간, {len(rows)}건)\n"
-    blocks = [head]
-    for region in C.REGIONS:
-        sub = [r for r in rows if region in r["r"]]
-        if not sub:
-            continue
-        blocks.append(f"\n<b>■ {region} ({len(sub)}건)</b>")
-        for r in sub:
-            hhmm = datetime.fromisoformat(r["d"]).astimezone(KST).strftime("%H:%M")
-            blocks.append(f'• {hhmm} <a href="{html.escape(r["link"])}">{html.escape(r["t"])}</a>')
-    if not rows:
-        blocks.append("\n해당 기간 수집된 기상 이슈 기사가 없습니다.")
-    if not (token and chat_id):
-        print("\n".join(blocks))
-        return
-    buf = ""
-    for b in blocks:  # 텔레그램 4096자 제한 분할
-        if len(buf) + len(b) + 1 > 3800:
-            tg(token, chat_id, buf)
-            buf = ""
-        buf += b + "\n"
-    tg(token, chat_id, buf)
-
-
-if __name__ == "__main__":
-    token, chat_id = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
-    (run_summary if sys.argv[1:] == ["summary"] else run_realtime)(token, chat_id)
