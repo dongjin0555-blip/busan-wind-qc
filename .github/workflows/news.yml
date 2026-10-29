@@ -1,8 +1,5 @@
 name: weather-news-scraper
 on:
-  schedule:
-    - cron: "*/30 * * * *"   # 30분마다 신규 기사 전송
-    - cron: "0 8 * * *"      # 매일 17:00 KST(08:00 UTC) 요약본
   workflow_dispatch:
     inputs:
       mode:

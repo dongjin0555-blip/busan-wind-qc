@@ -35,7 +35,7 @@ def naver_search(query):
         return json.load(r)["items"]
 
 
-def collect():
+def collect(max_age_hours=None):
     items = {}
     now = datetime.now(timezone.utc)
     for region in C.SEARCH_REGIONS:
@@ -47,15 +47,18 @@ def collect():
                 continue
             for it in raw:
                 dt = parsedate_to_datetime(it["pubDate"])
-                if now - dt > timedelta(hours=C.MAX_AGE_HOURS):
+                if now - dt > timedelta(hours=max_age_hours or C.MAX_AGE_HOURS):
                     continue
                 title = clean(it["title"])
                 text = title + " " + clean(it["description"])
                 regions = [r for r, ns in C.REGIONS.items() if any(n in text for n in ns)]
-                if not regions or not any(k.split()[0] in text for k in C.KEYWORDS):
+                hits = [k for k in C.KEYWORDS if k.split()[0] in text]
+                if not regions or not hits:
                     continue
                 link = it["link"] or it["originallink"]
-                items[link] = dict(title=title, link=link, dt=dt, regions=regions)
+                items[link] = dict(title=title, link=link, dt=dt, regions=regions,
+                                   keywords=hits, desc=clean(it["description"]),
+                                   origin=it["originallink"])
             time.sleep(0.15)
     return sorted(items.values(), key=lambda x: x["dt"])
 
