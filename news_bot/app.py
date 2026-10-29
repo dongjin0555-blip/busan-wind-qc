@@ -28,9 +28,19 @@ def _load_keys():
     return all(os.environ.get(k) for k in ("NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET"))
 
 
-@st.cache_data(ttl=600, show_spinner="네이버 뉴스 수집 중…")
-def refresh() -> int:
-    """수집 후 DB에 누적 저장 (10분 캐시). 수집 건수 반환."""
+def in_hours(now=None) -> bool:
+    now = now or datetime.now(KST)
+    return C.COLLECT_START_HOUR <= now.hour < C.COLLECT_END_HOUR
+
+
+def slot() -> int:
+    """15분 단위 구간 번호 (캐시 키)."""
+    return int(datetime.now(KST).timestamp() // (C.REFRESH_MINUTES * 60))
+
+
+@st.cache_data(ttl=C.REFRESH_MINUTES * 60, show_spinner="네이버 뉴스 수집 중…")
+def refresh(_slot: int) -> int:
+    """운영 시간 내에만 수집 후 DB에 누적 저장. 수집 건수 반환."""
     items = scrape.collect()
     db.upsert(items)
     return len(items)
@@ -47,7 +57,7 @@ def history(days: int) -> pd.DataFrame:
 
 st.title("🌀 부산·울산·경남 기상·재해 뉴스")
 st.caption("부산지방기상청 관측과 · 기상 이슈, 화재·재해·사고, 교통 영향 뉴스 모니터링 "
-           "(네이버 뉴스 · 수집 기사는 DB에 누적, 10분마다 갱신)")
+           f"(네이버 뉴스 · 매일 {C.COLLECT_START_HOUR:02d}:00~{C.COLLECT_END_HOUR:02d}:00 {C.REFRESH_MINUTES}분 간격 갱신 · DB 누적)")
 
 if not _load_keys():
     st.error("네이버 API 키가 없습니다. NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 을 "
@@ -65,11 +75,25 @@ with st.sidebar:
         refresh.clear()
         st.rerun()
 
-try:
-    n = refresh()
-except Exception as e:
-    n = None
-    st.warning(f"수집 실패 (저장된 이력만 표시합니다): {e}")
+if in_hours():
+    try:
+        refresh(slot())
+        st.caption(f"마지막 갱신 구간: {datetime.now(KST):%H:%M} 기준 (다음 갱신 {C.REFRESH_MINUTES}분 주기)")
+    except Exception as e:
+        st.warning(f"수집 실패 (저장된 이력만 표시합니다): {e}")
+else:
+    st.info(f"수집 운영 시간({C.COLLECT_START_HOUR:02d}:00~{C.COLLECT_END_HOUR:02d}:00) 외입니다. "
+            "저장된 이력만 표시합니다.")
+
+# 열려 있는 화면을 주기적으로 다시 불러와 새 기사를 반영
+@st.fragment(run_every=f"{C.REFRESH_MINUTES}m")
+def auto_refresh():
+    if st.session_state.get("_ticked"):
+        st.rerun()  # 타이머 발동 시 전체 앱을 다시 실행
+    st.session_state["_ticked"] = True
+
+
+auto_refresh()
 
 df = history(days)
 if not df.empty:
