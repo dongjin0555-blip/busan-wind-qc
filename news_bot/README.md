@@ -1,19 +1,13 @@
 # 부산·울산·경남 기상·재해 뉴스 대시보드
 
-기상 이슈, 화재·재해·사고, 교통 영향 뉴스를 네이버 뉴스 검색 API로 수집해 Streamlit으로 보여줍니다.
+기상 이슈, 화재·재해·사고, 교통 영향 뉴스를 구글 뉴스 RSS로 수집해 Streamlit으로 보여줍니다.
 
-## 실행
+## 실행 (API 키 불필요)
 ```bash
 pip install -r news_bot/requirements.txt
-mkdir -p news_bot/.streamlit
-cat > news_bot/.streamlit/secrets.toml <<'T'
-NAVER_CLIENT_ID = "발급받은 ID"
-NAVER_CLIENT_SECRET = "발급받은 Secret"
-T
 streamlit run news_bot/app.py
 ```
-(secrets.toml 대신 환경변수 `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`도 가능)
-네이버 키: https://developers.naver.com → 애플리케이션 등록 → 사용 API "검색"
+브라우저에서 http://localhost:8501 — 구글 뉴스 RSS를 사용하므로 계정/키가 필요 없습니다.
 
 ## 기능
 - 카테고리: 기상 / 재해·사고(화재, 산불, 붕괴, 침수, 인명피해 등) / 교통·생활
@@ -26,3 +20,5 @@ streamlit run news_bot/app.py
 ## 주의
 - 이력은 앱이 실행되어 있는 동안(운영 시간 09~18시, 15분 주기)만 쌓입니다. 상시 수집이 필요하면 상시 실행되는 서버에서 띄우세요.
 - Streamlit Community Cloud는 재시작 시 파일(news.db)이 초기화될 수 있습니다.
+- 구글 뉴스 RSS는 기사 요약이 없고 제목 기준으로 분류합니다. 링크는 구글 뉴스 경유 주소(클릭 시 원문으로 이동)입니다.
+- 서버(IP)당 요청이 많으면 구글이 일시 차단(429)할 수 있어 키워드를 묶어(15회/회) 호출합니다.

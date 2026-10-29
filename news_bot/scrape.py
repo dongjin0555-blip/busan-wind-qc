@@ -1,30 +1,28 @@
-"""네이버 뉴스 검색 API로 부산·울산·경남 기상/재해 뉴스 수집."""
+"""구글 뉴스 RSS로 부산·울산·경남 기상/재해 뉴스 수집 (API 키 불필요)."""
 import html
-import json
-import os
 import re
 import sys
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
 import config as C
 
+UA = {"User-Agent": "Mozilla/5.0 (busan-weather-news-dashboard)"}
+
 
 def clean(s):
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s or ""))).strip()
 
 
-def naver_search(query):
-    url = "https://openapi.naver.com/v1/search/news.json?" + urllib.parse.urlencode(
-        {"query": query, "display": 100, "sort": "date"})
-    req = urllib.request.Request(url, headers={
-        "X-Naver-Client-Id": os.environ["NAVER_CLIENT_ID"],
-        "X-Naver-Client-Secret": os.environ["NAVER_CLIENT_SECRET"]})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)["items"]
+def fetch_rss(query, days):
+    q = urllib.parse.quote(f"{query} when:{days}d")
+    url = f"https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko"
+    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
+        return ET.fromstring(r.read())
 
 
 def classify(text):
@@ -40,32 +38,48 @@ def classify(text):
     return regions, cats, kws, score
 
 
-def _search(q):
+def queries():
+    n = C.KEYWORDS_PER_QUERY
+    groups = [C.SEARCH_KEYWORDS[i:i + n] for i in range(0, len(C.SEARCH_KEYWORDS), n)]
+    out = []
+    for terms in C.SEARCH_REGIONS.values():
+        region = "(" + " OR ".join(terms) + ")"
+        for g in groups:
+            kw = " OR ".join(f'"{k}"' if " " in k else k for k in g)
+            out.append(f"{region} ({kw})")
+    return out
+
+
+def _search(args):
+    q, days = args
     try:
-        return naver_search(q)
+        return list(fetch_rss(q, days).iter("item"))
     except Exception as e:
         print(f"fetch fail [{q}]: {e}", file=sys.stderr)
         return []
 
 
 def collect(max_age_hours=None):
-    """신규/최근 기사 dict 리스트 (링크 기준 중복 제거)."""
-    queries = [f"{r} {k}" for r in C.SEARCH_REGIONS for k in C.SEARCH_KEYWORDS]
+    """최근 기사 dict 리스트 (링크 기준 중복 제거, 오래된 순)."""
+    hours = max_age_hours or C.FETCH_HOURS
+    days = max(1, -(-hours // 24))
     now = datetime.now(timezone.utc)
-    limit = timedelta(hours=max_age_hours or C.FETCH_HOURS)
     items = {}
-    with ThreadPoolExecutor(4) as ex:
-        for raw in ex.map(_search, queries):
+    with ThreadPoolExecutor(3) as ex:
+        for raw in ex.map(_search, [(q, days) for q in queries()]):
             for it in raw:
-                dt = parsedate_to_datetime(it["pubDate"])
-                if now - dt > limit:
+                try:
+                    dt = parsedate_to_datetime(it.findtext("pubDate"))
+                except Exception:
                     continue
-                title, desc = clean(it["title"]), clean(it["description"])
-                regions, cats, kws, score = classify(title + " " + desc)
+                if now - dt > timedelta(hours=hours):
+                    continue
+                title = re.sub(r"\s+-\s+[^-]+$", "", clean(it.findtext("title")))
+                regions, cats, kws, score = classify(title)
                 if not regions or not cats:
                     continue
-                link = it["link"] or it["originallink"]
-                items[link] = dict(link=link, title=title, desc=desc, dt=dt.isoformat(),
+                link = it.findtext("link")
+                items[link] = dict(link=link, title=title, desc="", dt=dt.isoformat(),
                                    regions=regions, categories=cats, keywords=kws,
                                    score=score, important=score >= C.IMPORTANT_MIN)
     return sorted(items.values(), key=lambda x: x["dt"])
