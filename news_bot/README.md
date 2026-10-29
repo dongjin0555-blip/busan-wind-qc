@@ -25,7 +25,7 @@ streamlit run news_bot/app.py
 
 ## 텔레그램 채널 전송 (GitHub Actions)
 `notify.py`가 새 기사만 채널로 보냅니다(주요 기사는 🚨). `.github/workflows/news.yml`이
-KST 09:00~17:59에 15분마다 자동 실행합니다. 전송 이력은 `news_bot/sent.json`에 저장됩니다.
+KST 09:00~18:00(09:00, 09:15 … 17:45, 18:00)에 15분마다 자동 실행합니다. 전송 이력은 `news_bot/sent.json`에 저장됩니다.
 
 설정 순서:
 1. 텔레그램 채널을 만들고, @BotFather `/newbot`으로 봇을 만든 뒤 봇을 채널 관리자(메시지 게시 권한)로 추가

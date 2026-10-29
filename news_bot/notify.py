@@ -57,9 +57,19 @@ def run_test(token, chat_id):
     print("sent test:", pick["title"])
 
 
+def within_hours(now=None):
+    """KST 09:00~18:30 (18:00 슬롯이 조금 늦어져도 허용)."""
+    now = now or datetime.now(KST)
+    return C.COLLECT_START_HOUR * 60 <= now.hour * 60 + now.minute <= C.COLLECT_END_HOUR * 60 + 30
+
+
 def main():
     token, chat_id = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     dry = not (token and chat_id)
+    if "--only-hours" in sys.argv and not within_hours():
+        # GitHub 스케줄이 늦게 실행되어도 운영 시간 밖에는 전송하지 않음 (다음 운영 시간에 이어서 전송)
+        print("운영 시간(09:00~18:30 KST) 밖이라 건너뜁니다")
+        return
     if "--test" in sys.argv:
         if dry:
             raise SystemExit("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 가 없습니다")

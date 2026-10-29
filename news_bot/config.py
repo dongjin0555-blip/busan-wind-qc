@@ -40,7 +40,7 @@ IMPORTANT_MIN = 3
 
 FETCH_HOURS = 48        # 수집 시 이 시간 이내 기사만
 
-# 수집 운영 시간(KST, 시작 시 포함 ~ 종료 시 미포함)과 갱신 주기
+# 수집 운영 시간(KST, 시작·종료 정각 모두 포함: 09:00 ~ 18:00)과 갱신 주기
 COLLECT_START_HOUR = 9
 COLLECT_END_HOUR = 18
 REFRESH_MINUTES = 15

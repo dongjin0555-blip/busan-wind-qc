@@ -18,7 +18,8 @@ st.set_page_config(page_title="부산·울산·경남 기상·재해 뉴스", pa
 
 def in_hours(now=None) -> bool:
     now = now or datetime.now(KST)
-    return C.COLLECT_START_HOUR <= now.hour < C.COLLECT_END_HOUR
+    minutes = now.hour * 60 + now.minute
+    return C.COLLECT_START_HOUR * 60 <= minutes <= C.COLLECT_END_HOUR * 60  # 종료 시각 정각까지 포함
 
 
 def slot() -> int:
