@@ -22,3 +22,17 @@ streamlit run news_bot/app.py
 - Streamlit Community Cloud는 재시작 시 파일(news.db)이 초기화될 수 있습니다.
 - 구글 뉴스 RSS는 기사 요약이 없고 제목 기준으로 분류합니다. 링크는 구글 뉴스 경유 주소(클릭 시 원문으로 이동)입니다.
 - 서버(IP)당 요청이 많으면 구글이 일시 차단(429)할 수 있어 키워드를 묶어(15회/회) 호출합니다.
+
+## 텔레그램 채널 전송 (GitHub Actions)
+`notify.py`가 새 기사만 채널로 보냅니다(주요 기사는 🚨). `.github/workflows/news.yml`이
+KST 09:00~17:59에 15분마다 자동 실행합니다. 전송 이력은 `news_bot/sent.json`에 저장됩니다.
+
+설정 순서:
+1. 텔레그램 채널을 만들고, @BotFather `/newbot`으로 봇을 만든 뒤 봇을 채널 관리자(메시지 게시 권한)로 추가
+2. 저장소 Settings → Secrets and variables → Actions 에 등록
+   - `TELEGRAM_BOT_TOKEN`: BotFather가 준 토큰
+   - `TELEGRAM_CHAT_ID`: 공개 채널 `@채널아이디` / 비공개 채널 `-100…` 숫자 ID
+3. 기본 브랜치에 머지 후 Actions → weather-news-telegram → Run workflow 로 수동 테스트
+   (Actions 스케줄은 기본 브랜치에서만 동작)
+
+로컬 점검(전송 없이 출력만): `python news_bot/notify.py` (news_bot 폴더에서)
