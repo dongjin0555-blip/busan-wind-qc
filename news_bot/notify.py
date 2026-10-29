@@ -42,7 +42,8 @@ def format_item(it):
     tags = " ".join("#" + r for r in it["regions"]) + " " + " ".join(
         "#" + c.replace("·", "") for c in it["categories"])
     head = "🚨 " if it["important"] else "📰 "
-    return (f"{head}<b>{html.escape(it['title'])}</b>\n{dt}  {tags}\n{html.escape(it['link'])}")
+    return (f"{head}<b>{html.escape(it['title'])}</b>\n{dt}  {tags}\n"
+            f'<a href="{html.escape(it["link"], quote=True)}">원문보기</a>')
 
 
 def main():
