@@ -1,4 +1,4 @@
-"""새 기사를 텔레그램 채널로 전송 (GitHub Actions에서 15분마다 실행).
+"""새 기사를 모아 텔레그램 채널로 묶음(1개 메시지) 전송 (15분마다 실행).
 
 환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (없으면 전송 없이 출력만 하는 dry-run)
 전송 이력: news_bot/sent.json (링크 -> 기사 시각), 7일 보관
@@ -19,7 +19,7 @@ import scrape
 
 SENT_FILE = Path(__file__).with_name("sent.json")
 KST = timezone(timedelta(hours=9))
-MAX_PER_RUN = 20       # 1회 최대 전송 수
+MAX_PER_RUN = 40       # 1회 묶음에 담을 최대 기사 수
 FIRST_RUN_HOURS = 3    # 이력 파일이 없을 때(첫 실행)는 최근 N시간 기사만 전송
 
 
@@ -37,24 +37,41 @@ def tg_send(token, chat_id, text):
     raise RuntimeError("telegram rate limit")
 
 
-def format_item(it):
-    dt = datetime.fromisoformat(it["dt"]).astimezone(KST).strftime("%m/%d %H:%M")
-    tags = " ".join("#" + r for r in it["regions"]) + " " + " ".join(
-        "#" + c.replace("·", "") for c in it["categories"])
-    head = "🚨 " if it["important"] else "📰 "
-    return (f"{head}<b>{html.escape(it['title'])}</b>\n{dt}  {tags}\n"
+def format_line(it):
+    tags = "·".join(it["regions"]) + "·" + "·".join(it["categories"])
+    head = "🚨" if it["important"] else "▪️"
+    return (f'{head} <b>{html.escape(it["title"])}</b> ({html.escape(tags)}) '
             f'<a href="{html.escape(it["link"], quote=True)}">원문보기</a>')
 
 
+def build_digest(items, now=None, limit=3800):
+    """기사 여러 건을 하나의 메시지로 묶음 (주요 기사 먼저). 길이 초과 시에만 여러 메시지로 분할."""
+    now = now or datetime.now(KST)
+    ordered = sorted(items, key=lambda i: (not i["important"], i["dt"]))
+    lines = [format_line(i) for i in ordered]
+    head = f"📋 <b>기상·재해 뉴스 {len(items)}건</b> ({now:%m/%d %H:%M} 기준)\n"
+    msgs, cur = [], head
+    for ln in lines:
+        if len(cur) + len(ln) + 2 > limit:
+            msgs.append(cur)
+            cur = ""
+        cur += "\n" + ln + "\n"
+    msgs.append(cur)
+    if len(msgs) > 1:
+        msgs = [m + f"\n({k}/{len(msgs)})" for k, m in enumerate(msgs, 1)]
+    return msgs
+
+
 def run_test(token, chat_id):
-    """연결 확인용: 이력과 무관하게 최신 기사 1건(주요 기사 우선)을 보내고 이력은 건드리지 않는다."""
+    """연결 확인용: 이력과 무관하게 최신 기사 최대 3건을 묶어 보내고 이력은 건드리지 않는다."""
     items = scrape.collect()
     print(f"collected={len(items)}")
     if not items:
-        raise SystemExit("수집된 기사가 없습니다 (구글 뉴스 접속/키워드 확인 필요)")
-    pick = max(items, key=lambda i: (i["important"], i["dt"]))
-    tg_send(token, chat_id, "✅ <b>테스트 전송</b> (아래는 최신 기사 예시)\n\n" + format_item(pick))
-    print("sent test:", pick["title"])
+        raise SystemExit("조건에 맞는 기사가 없습니다 (연합뉴스 RSS 접속/키워드 확인 필요)")
+    pick = sorted(items, key=lambda i: i["dt"])[-3:]
+    for m in build_digest(pick):
+        tg_send(token, chat_id, "✅ <b>테스트 전송</b>\n" + m)
+    print("sent test:", [i["title"] for i in pick])
 
 
 def within_hours(now=None):
@@ -88,13 +105,16 @@ def main():
     new = new[-MAX_PER_RUN:]
     print(f"collected={len(items)} new={len(new)} dry_run={dry}")
 
-    for it in new:
+    if new:
+        msgs = build_digest(new)
         if dry:
-            print(format_item(it).replace("\n", " | "))
-            continue
-        tg_send(token, chat_id, format_item(it))
-        sent[it["link"]] = it["dt"]
-        time.sleep(1.5)
+            print("\n----\n".join(msgs))
+        else:
+            for m in msgs:
+                tg_send(token, chat_id, m)
+                time.sleep(1.5)
+            for it in new:
+                sent[it["link"]] = it["dt"]
 
     if not dry:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
