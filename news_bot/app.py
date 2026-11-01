@@ -1,4 +1,4 @@
-"""부산·울산·경남 기상·재해 뉴스 대시보드 (Streamlit + 구글 뉴스 RSS + SQLite 이력).
+"""부산·울산·경남 기상·재해 뉴스 대시보드 (Streamlit + 연합뉴스 RSS + SQLite 이력).
 
 실행: streamlit run news_bot/app.py
 """
@@ -27,7 +27,7 @@ def slot() -> int:
     return int(datetime.now(KST).timestamp() // (C.REFRESH_MINUTES * 60))
 
 
-@st.cache_data(ttl=C.REFRESH_MINUTES * 60, show_spinner="구글 뉴스 수집 중…")
+@st.cache_data(ttl=C.REFRESH_MINUTES * 60, show_spinner="연합뉴스 수집 중…")
 def refresh(_slot: int) -> int:
     """운영 시간 내에만 수집 후 DB에 누적 저장. 수집 건수 반환."""
     items = scrape.collect()
@@ -46,7 +46,7 @@ def history(days: int) -> pd.DataFrame:
 
 st.title("🌀 부산·울산·경남 기상·재해 뉴스")
 st.caption("부산지방기상청 관측과 · 기상 이슈, 화재·재해·사고, 교통 영향 뉴스 모니터링 "
-           f"(구글 뉴스 · 매일 {C.COLLECT_START_HOUR:02d}:00~{C.COLLECT_END_HOUR:02d}:00 {C.REFRESH_MINUTES}분 간격 갱신 · DB 누적)")
+           f"(연합뉴스 · 매일 {C.COLLECT_START_HOUR:02d}:00~{C.COLLECT_END_HOUR:02d}:00 {C.REFRESH_MINUTES}분 간격 갱신 · DB 누적)")
 
 with st.sidebar:
     st.header("필터")
