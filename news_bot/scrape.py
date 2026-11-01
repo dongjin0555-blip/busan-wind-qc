@@ -41,16 +41,24 @@ def parse_dt(text):
 
 
 def classify(text):
-    """(지역, 카테고리, 키워드, 중요도 점수) 반환."""
+    """(지역, 분류 라벨 리스트, 키워드, 중요도 점수, 제외 사유) 반환. 분류가 없으면 라벨 리스트는 빈 값."""
     regions = [r for r, ns in C.REGIONS.items() if any(n in text for n in ns)]
-    cats, kws = [], []
-    for cat, ks in C.CATEGORIES.items():
-        hit = [k for k in ks if k in text]
-        if hit:
-            cats.append(cat)
-            kws += hit
+    ex = next((w for w in C.EXCLUDE if w in text), None)
+    a = [k for k in C.CAUSE if k in text]
+    b = [k for k in C.DAMAGE if k in text]
+    c = [k for k in C.NEEDS_DATA if k in text]
+    kinds = []
+    if ex or not regions:
+        pass
+    elif a and (b or c):
+        kinds = [C.KIND_CAUSE]
+    elif any(t in text for t in C.ALERT_TERMS) and any(t in text for t in C.ALERT_ACTIONS):
+        kinds = [C.KIND_ALERT]
+    elif c:
+        kinds = [C.KIND_DATA]
     score = sum(w for t, w in C.IMPORTANT_TERMS.items() if t in text)
-    return regions, cats, kws, score
+    reason = f"제외어({ex})" if ex else ("지역 불일치" if not regions else "기상/사고 조합 없음")
+    return regions, kinds, list(dict.fromkeys(a + b + c)), score, reason
 
 
 def _fetch(url):
@@ -61,22 +69,29 @@ def _fetch(url):
         return []
 
 
+rejected = []  # 가장 최근 collect()에서 지역은 맞지만 분류에서 탈락한 기사 (튜닝용)
+
+
 def collect(max_age_hours=None):
-    """최근 기사 dict 리스트 (링크 기준 중복 제거, 오래된 순)."""
+    """최근 기사 dict 리스트 (링크 기준 중복 제거, 오래된 순). 탈락 기사는 `rejected`에 담김."""
     limit = timedelta(hours=max_age_hours or C.FETCH_HOURS)
     now = datetime.now(timezone.utc)
-    items = {}
+    items, rej = {}, {}
     for url in C.FEED_URLS:
         for it in _fetch(url):
             dt = parse_dt(it.findtext("pubDate") or "")
             if dt is None or now - dt > limit:
                 continue
             title, desc = clean(it.findtext("title")), clean(it.findtext("description"))
-            regions, cats, kws, score = classify(title + " " + desc)
+            regions, kinds, kws, score, reason = classify(title + " " + desc)
             link = (it.findtext("link") or "").split("?")[0]
-            if not regions or not cats or not link:
+            if not link or not regions:
+                continue
+            if not kinds:
+                rej[link] = dict(link=link, title=title, dt=dt.isoformat(), regions=regions, reason=reason)
                 continue
             items[link] = dict(link=link, title=title, desc=desc, dt=dt.isoformat(),
-                               regions=regions, categories=cats, keywords=kws,
-                               score=score, important=score >= C.IMPORTANT_MIN)
+                               regions=regions, categories=kinds, keywords=kws, score=score,
+                               important=kinds[0] in (C.KIND_CAUSE, C.KIND_ALERT))
+    rejected[:] = sorted(rej.values(), key=lambda x: x["dt"])
     return sorted(items.values(), key=lambda x: x["dt"])

@@ -32,6 +32,7 @@ def refresh(_slot: int) -> int:
     """운영 시간 내에만 수집 후 DB에 누적 저장. 수집 건수 반환."""
     items = scrape.collect()
     db.upsert(items)
+    db.upsert_rejected(scrape.rejected)
     return len(items)
 
 
@@ -52,7 +53,7 @@ with st.sidebar:
     st.header("필터")
     days = st.select_slider("조회 기간", [1, 2, 3, 7, 14, 30], value=1, format_func=lambda d: f"최근 {d}일")
     regions = st.multiselect("지역", list(C.REGIONS), default=list(C.REGIONS))
-    cats = st.multiselect("카테고리", list(C.CATEGORIES), default=list(C.CATEGORIES))
+    cats = st.multiselect("분류", C.KINDS, default=C.KINDS)
     kw_sel = st.multiselect("키워드 (비우면 전체)", sorted(set(C.KEYWORDS)))
     q = st.text_input("제목 검색")
     if st.button("🔄 지금 새로 수집", width="stretch"):
@@ -72,17 +73,20 @@ else:
 # 열려 있는 화면을 주기적으로 다시 불러와 새 기사를 반영
 @st.fragment(run_every=f"{C.REFRESH_MINUTES}m")
 def auto_refresh():
-    if st.session_state.get("_ticked"):
-        st.rerun()  # 타이머 발동 시 전체 앱을 다시 실행
-    st.session_state["_ticked"] = True
+    # 화면 전체가 실행되는 중(필터 조작 등)이면 표시만 지우고 끝, 타이머가 단독으로 발동했을 때만 전체 재실행
+    if st.session_state.get("_full_run"):
+        st.session_state["_full_run"] = False
+        return
+    st.rerun()
 
 
+st.session_state["_full_run"] = True
 auto_refresh()
 
 df = history(days)
 if not df.empty:
     m = df["regions"].apply(lambda r: any(x in regions for x in r))
-    m &= df["categories"].apply(lambda c: any(x in cats for x in c))
+    m &= df["categories"].apply(lambda c: any(x in cats for x in c) or not any(x in C.KINDS for x in c))
     if kw_sel:
         m &= df["keywords"].apply(lambda k: any(x in kw_sel for x in k))
     if q:
@@ -141,3 +145,16 @@ view = fmt(df)
 st.dataframe(view[SHOW], column_config=COLS, hide_index=True, width="stretch")
 st.download_button("CSV 다운로드", view[SHOW].to_csv(index=False).encode("utf-8-sig"),
                    file_name=f"weather_news_{datetime.now(KST):%Y%m%d_%H%M}.csv", mime="text/csv")
+
+with st.expander("제외된 기사 (지역은 맞지만 분류에서 탈락 · 키워드 튜닝용)"):
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rej = pd.DataFrame(db.load_rejected(since), columns=["dt", "title", "link", "regions", "reason"])
+    if rej.empty:
+        st.write("제외된 기사가 없습니다.")
+    else:
+        rej["시각"] = pd.to_datetime(rej["dt"], utc=True).dt.tz_convert(KST).dt.strftime("%m/%d %H:%M")
+        rej["지역"] = rej["regions"].apply(", ".join)
+        st.dataframe(rej[["시각", "지역", "title", "reason", "link"]],
+                     column_config={"title": "제목", "reason": "제외 사유",
+                                    "link": st.column_config.LinkColumn("링크", display_text="열기")},
+                     hide_index=True, width="stretch")

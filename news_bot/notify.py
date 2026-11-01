@@ -38,7 +38,7 @@ def tg_send(token, chat_id, text):
 
 
 def format_line(it):
-    tags = "·".join(it["regions"]) + "·" + "·".join(it["categories"])
+    tags = "·".join(it["regions"]) + " / " + "·".join(it["categories"])
     head = "🚨" if it["important"] else "▪️"
     return (f'{head} <b>{html.escape(it["title"])}</b> ({html.escape(tags)}) '
             f'<a href="{html.escape(it["link"], quote=True)}">원문보기</a>')
