@@ -18,6 +18,10 @@ import config as C
 import scrape
 
 SENT_FILE = Path(__file__).with_name("sent.json")
+DATA_FILE = Path(__file__).resolve().parent.parent / "news" / "data.json"   # 대시보드(news/index.html)가 읽는 파일
+KEEP_DAYS = 14         # 대시보드용 기사 보관 일수
+KEEP_REJECTED_DAYS = 2 # 제외된 기사 보관 일수
+MAX_REJECTED = 300
 KST = timezone(timedelta(hours=9))
 MAX_PER_RUN = 40       # 1회 묶음에 담을 최대 기사 수
 FIRST_RUN_HOURS = 3    # 이력 파일이 없을 때(첫 실행)는 최근 N시간 기사만 전송
@@ -74,6 +78,32 @@ def run_test(token, chat_id):
     print("sent test:", [i["title"] for i in pick])
 
 
+def write_data(items, rejected):
+    """대시보드용 누적 데이터 저장: 기존 기사와 병합하고 오래된 것은 정리."""
+    try:
+        old = json.loads(DATA_FILE.read_text())
+    except Exception:
+        old = {}
+    now = datetime.now(timezone.utc)
+    keep = lambda dt, days: now - datetime.fromisoformat(dt) <= timedelta(days=days)
+    news = {i["link"]: i for i in old.get("items", [])}
+    for it in items:
+        news[it["link"]] = {k: it[k] for k in ("link", "title", "dt", "regions", "categories",
+                                                "keywords", "score", "important")}
+    rej = {i["link"]: i for i in old.get("rejected", [])}
+    for it in rejected:
+        rej[it["link"]] = {k: it[k] for k in ("link", "title", "dt", "regions", "reason")}
+    out = {
+        "updated": now.isoformat(),
+        "items": sorted((i for i in news.values() if keep(i["dt"], KEEP_DAYS)),
+                        key=lambda i: i["dt"], reverse=True),
+        "rejected": sorted((i for i in rej.values() if keep(i["dt"], KEEP_REJECTED_DAYS)),
+                           key=lambda i: i["dt"], reverse=True)[:MAX_REJECTED],
+    }
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DATA_FILE.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+
+
 def within_hours(now=None):
     """KST 09:00~18:30 (18:00 슬롯이 조금 늦어져도 허용)."""
     now = now or datetime.now(KST)
@@ -95,6 +125,7 @@ def main():
     sent = {} if first else json.loads(SENT_FILE.read_text())
 
     items = scrape.collect()
+    write_data(items, scrape.rejected)  # 전송 성공 여부와 무관하게 대시보드 데이터는 항상 갱신
     if first:
         limit = (datetime.now(timezone.utc) - timedelta(hours=FIRST_RUN_HOURS)).isoformat()
         for it in items:  # 첫 실행: 오래된 기사는 보낸 것으로 처리해 폭주 방지
