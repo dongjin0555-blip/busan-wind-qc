@@ -92,6 +92,6 @@ def collect(max_age_hours=None):
                 continue
             items[link] = dict(link=link, title=title, desc=desc, dt=dt.isoformat(),
                                regions=regions, categories=kinds, keywords=kws, score=score,
-                               important=kinds[0] in (C.KIND_CAUSE, C.KIND_ALERT))
+                               important=kinds[0] == C.KIND_CAUSE or (kinds[0] == C.KIND_ALERT and "해제" not in title))
     rejected[:] = sorted(rej.values(), key=lambda x: x["dt"])
     return sorted(items.values(), key=lambda x: x["dt"])

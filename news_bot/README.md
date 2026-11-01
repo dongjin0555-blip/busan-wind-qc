@@ -40,3 +40,13 @@ KST 09:00~18:00(09:00, 09:15 … 17:45, 18:00)에 15분마다 자동 실행합�
    (Actions 스케줄은 기본 브랜치에서만 동작)
 
 로컬 점검(전송 없이 출력만): `python news_bot/notify.py` (news_bot 폴더에서)
+
+## HTML 대시보드 (news/index.html)
+서버 없이 정적 파일로 동작하는 대시보드입니다. 수집기(`notify.py`)가 15분마다 `news/data.json`에
+기사를 14일치 누적 저장하고(제외된 기사는 2일치), `news/index.html`이 그 파일을 읽어 그립니다.
+- 주요 기사, 건수 요약, 시간대/일별 차트, 키워드별 차트(표로 보기 전환), 전체 목록, CSV 다운로드, 제외된 기사
+- 필터: 기간(오늘/24시간/3일/7일/14일), 지역, 분류, 키워드, 제목 검색
+- 화면을 열어 두면 5분마다 데이터를 다시 읽음, 라이트/다크 자동 + 수동 전환
+- GitHub Pages로 공개: 저장소 Settings → Pages → Branch `main` / `(root)` 로 설정하면
+  `https://<계정>.github.io/busan-wind-qc/news/` 에서 열림
+- 로컬 확인: `python -m http.server` 실행 후 `http://localhost:8000/news/`
