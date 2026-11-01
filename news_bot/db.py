@@ -12,6 +12,8 @@ def connect():
         link TEXT PRIMARY KEY, title TEXT, desc TEXT, dt TEXT,
         regions TEXT, categories TEXT, keywords TEXT, score INTEGER, important INTEGER)""")
     con.execute("CREATE INDEX IF NOT EXISTS idx_dt ON news(dt)")
+    con.execute("""CREATE TABLE IF NOT EXISTS rejected (
+        link TEXT PRIMARY KEY, title TEXT, dt TEXT, regions TEXT, reason TEXT)""")
     return con
 
 
@@ -40,3 +42,23 @@ def load(since_iso):
         d["important"] = bool(d["important"])
         out.append(d)
     return out
+
+
+def upsert_rejected(items):
+    con = connect()
+    with con:
+        con.executemany("INSERT OR REPLACE INTO rejected VALUES (?,?,?,?,?)",
+                        [(i["link"], i["title"], i["dt"], json.dumps(i["regions"], ensure_ascii=False),
+                          i["reason"]) for i in items])
+    con.close()
+
+
+def load_rejected(since_iso):
+    con = connect()
+    con.row_factory = sqlite3.Row
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM rejected WHERE dt >= ? ORDER BY dt DESC", (since_iso,))]
+    con.close()
+    for r in rows:
+        r["regions"] = json.loads(r["regions"])
+    return rows
